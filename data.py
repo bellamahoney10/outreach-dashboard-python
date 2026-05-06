@@ -258,7 +258,7 @@ def load_data(start_date: str, end_date: str):
         with mochi_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT patient_id, created_at AS sub_at FROM subscriptions
-                WHERE patient_id = ANY(%s) AND descriptor = 'HEALTH'
+                WHERE patient_id = ANY(%s::uuid[]) AND descriptor = 'HEALTH'
                 ORDER BY created_at
             """, [all_known_pids])
             for row in cur.fetchall():
@@ -344,6 +344,7 @@ def load_data(start_date: str, end_date: str):
         converted       = bool(converting_sub)
         conv_via        = "Answered Call" if converted and disp == "Call Answered" else ("Other" if converted else "")
         activated_at    = converting_sub["sub_at"].astimezone(PT).strftime("%Y-%m-%d %-I:%M %p PT") if converting_sub else ""
+        ttc_secs        = int((converting_sub["sub_at"] - call_start).total_seconds()) if converting_sub and call_start else None
 
         appt_booked = appt_completed = refill_created = False
         for pid in phone_to_pids.get(phone10, set()):
@@ -369,10 +370,13 @@ def load_data(start_date: str, end_date: str):
             "converted":         converted,
             "conv_via":          conv_via,
             "activated_at":      activated_at,
+            "ttc_secs":          ttc_secs,
             "mrn":               c.get("mrn") or "",
             "appt_booked":       appt_booked,
             "appt_completed":    appt_completed,
             "refill_created":    refill_created,
+            "calc_disp":         disposition_from_queue(c["contact_result"], secs),
+            "td_mismatch":       bool(sheet_entry and sheet_result and sheet_result != disposition_from_queue(c["contact_result"], secs)),
             "has_cb_request":    "Call Back Request:" in sheet_notes,
             "is_cb_result":      sheet_notes.startswith("Callback:"),
             "cb_followed_up":    bool(fu),
